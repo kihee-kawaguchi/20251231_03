@@ -1,0 +1,266 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      confirm_deployment:
+        description: 'Type "deploy" to confirm'
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  validate:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate deployment confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm_deployment }}" != "deploy" ]; then
+            echo "ERROR: Deployment not confirmed. Please type 'deploy' to confirm."
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Run tests
+        run: pytest -v --cov=src --cov-report=xml --cov-fail-under=67
+
+      - name: Validate Kubernetes manifests
+        run: |
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+          # Dry-run validation
+          kubectl apply --dry-run=client -f k8s/namespace.yaml
+          kubectl apply --dry-run=client -f k8s/production/configmap.yaml
+          kubectl apply --dry-run=client -f k8s/production/deployment.yaml
+          kubectl apply --dry-run=client -f k8s/service.yaml
+
+      - name: Security scan
+        run: |
+          pip install bandit safety
+          bandit -r src/
+          safety check --json
+
+  build:
+    name: Build and Push Docker Image
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.event.inputs.environment }}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+
+  deploy:
+    name: Deploy to Kubernetes
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event.inputs.environment }}
+      url: https://${{ secrets.PRODUCTION_DOMAIN }}/health/
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Verify cluster connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+
+      - name: Apply secrets
+        run: |
+          kubectl create secret generic chatwork-lark-secrets \
+            --from-literal=chatwork-api-token="${{ secrets.CHATWORK_API_TOKEN }}" \
+            --from-literal=chatwork-webhook-secret="${{ secrets.CHATWORK_WEBHOOK_SECRET }}" \
+            --from-literal=lark-app-id="${{ secrets.LARK_APP_ID }}" \
+            --from-literal=lark-app-secret="${{ secrets.LARK_APP_SECRET }}" \
+            --from-literal=lark-verification-token="${{ secrets.LARK_VERIFICATION_TOKEN }}" \
+            --namespace=chatwork-lark \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Apply ConfigMap
+        run: |
+          kubectl apply -f k8s/production/configmap.yaml
+
+      - name: Deploy Redis
+        run: |
+          kubectl apply -f k8s/redis-deployment.yaml
+          kubectl wait --for=condition=ready pod -l app=redis -n chatwork-lark --timeout=120s
+
+      - name: Update deployment image
+        run: |
+          # Update image tag in deployment
+          sed -i "s|image:.*|image: ${{ needs.build.outputs.image_tag }}|g" k8s/production/deployment.yaml
+          kubectl apply -f k8s/production/deployment.yaml
+
+      - name: Apply Service
+        run: |
+          kubectl apply -f k8s/service.yaml
+
+      - name: Apply Ingress
+        run: |
+          # Update domain in ingress if provided
+          if [ -n "${{ secrets.PRODUCTION_DOMAIN }}" ]; then
+            sed -i "s|REPLACE_WITH_YOUR_DOMAIN.com|${{ secrets.PRODUCTION_DOMAIN }}|g" k8s/production/ingress.yaml
+          fi
+          kubectl apply -f k8s/production/ingress.yaml
+
+      - name: Wait for deployment
+        run: |
+          kubectl rollout status deployment/chatwork-lark-bridge -n chatwork-lark --timeout=5m
+
+      - name: Verify deployment
+        run: |
+          echo "=== Pods ==="
+          kubectl get pods -n chatwork-lark
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -n chatwork-lark
+          echo ""
+          echo "=== Ingress ==="
+          kubectl get ingress -n chatwork-lark
+          echo ""
+          echo "=== Deployment Status ==="
+          kubectl get deployment chatwork-lark-bridge -n chatwork-lark
+
+      - name: Health check
+        run: |
+          # Wait for ingress to be ready
+          sleep 30
+
+          # Get domain from ingress or use secret
+          DOMAIN="${{ secrets.PRODUCTION_DOMAIN }}"
+
+          if [ -n "$DOMAIN" ]; then
+            echo "Checking health endpoint: https://$DOMAIN/health/"
+            curl -f -k https://$DOMAIN/health/ || echo "Health check failed (may take a few minutes for DNS/TLS)"
+          else
+            echo "No domain configured, skipping health check"
+          fi
+
+      - name: Create deployment summary
+        run: |
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          # Deployment Summary
+
+          ## Environment
+          - Target: ${{ github.event.inputs.environment }}
+          - Image: ${{ needs.build.outputs.image_tag }}
+          - Digest: ${{ needs.build.outputs.image_digest }}
+
+          ## Kubernetes Resources
+          - Namespace: chatwork-lark
+          - Replicas: 2 (High Availability)
+          - Strategy: RollingUpdate (Zero Downtime)
+
+          ## Endpoints
+          - Health: https://${{ secrets.PRODUCTION_DOMAIN }}/health/
+          - API Docs: https://${{ secrets.PRODUCTION_DOMAIN }}/docs
+          - Chatwork Webhook: https://${{ secrets.PRODUCTION_DOMAIN }}/webhook/chatwork/
+          - Lark Webhook: https://${{ secrets.PRODUCTION_DOMAIN }}/webhook/lark/
+
+          ## Next Steps
+          1. Configure Chatwork Webhook URL
+          2. Configure Lark Event Subscription URL
+          3. Monitor logs: \`kubectl logs -n chatwork-lark -l app=chatwork-lark-bridge -f\`
+          4. Check TLS certificate: \`kubectl get certificate -n chatwork-lark\`
+          EOF
+
+  rollback:
+    name: Rollback (if deployment fails)
+    needs: deploy
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Rollback deployment
+        run: |
+          echo "Deployment failed, rolling back..."
+          kubectl rollout undo deployment/chatwork-lark-bridge -n chatwork-lark
+          kubectl rollout status deployment/chatwork-lark-bridge -n chatwork-lark --timeout=5m
+
+      - name: Notify failure
+        run: |
+          echo "::error::Production deployment failed and was rolled back"

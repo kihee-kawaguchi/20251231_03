@@ -378,6 +378,13 @@ CI/CD: ✅ 設定済み
 - [ ] Webhook設定
 - [ ] 動作確認
 
+### 準備済みの自動化ツール
+- ✅ GitHub Actions デプロイワークフロー (`.github/workflows/deploy-production.yml`)
+- ✅ 本番デプロイスクリプト (`k8s/production/deploy-production.sh`)
+- ✅ デプロイ検証スクリプト (`validate-production-readiness.sh`)
+- ✅ 包括的デプロイガイド (`PRODUCTION_DEPLOYMENT_GUIDE.md`)
+- ✅ Docker Compose 設定 (`docker-compose.yml`)
+
 ### デプロイ見積もり
 ```
 準備時間: 30-60分

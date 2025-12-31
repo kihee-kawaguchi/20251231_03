@@ -1,0 +1,14 @@
+{
+  "webhook_setting_id": "12345",
+  "webhook_event_type": "message_created",
+  "webhook_event_time": 1234567890,
+  "webhook_event": {
+    "message_id": "999888777",
+    "room_id": 12345678,
+    "account_id": 111,
+    "body": "こんにちは！これはテストメッセージです。",
+    "send_time": 1234567890,
+    "update_time": 1234567890,
+    "from_account_id": 111
+  }
+}
