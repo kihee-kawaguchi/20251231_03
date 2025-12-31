@@ -1,0 +1,47 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: chatwork-lark
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - redis-deployment.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+
+# Common labels for all resources
+commonLabels:
+  app.kubernetes.io/name: chatwork-lark-bridge
+  app.kubernetes.io/instance: production
+  app.kubernetes.io/version: "1.0.0"
+  app.kubernetes.io/managed-by: kustomize
+
+# Image tags
+images:
+  - name: chatwork-lark-bridge
+    newTag: latest
+
+# ConfigMap generator for environment-specific configs
+configMapGenerator:
+  - name: chatwork-lark-env-config
+    literals:
+      - ENV=production
+      - DEBUG=false
+
+# Secret generator (for development only - use external secret management in production)
+# secretGenerator:
+#   - name: chatwork-lark-dev-secrets
+#     literals:
+#       - CHATWORK_API_TOKEN=dev_token
+
+# Replicas for production
+replicas:
+  - name: chatwork-lark-bridge
+    count: 2
+
+# Resource patches for different environments
+patchesStrategicMerge:
+  # - production-patches.yaml

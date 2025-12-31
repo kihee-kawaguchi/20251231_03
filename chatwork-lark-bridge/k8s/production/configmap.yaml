@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatwork-lark-config
+  namespace: chatwork-lark
+  labels:
+    app: chatwork-lark-bridge
+    environment: production
+data:
+  # Application settings
+  log_level: "INFO"
+  redis_url: "redis://redis-service:6379/0"
+
+  # Loop detection
+  enable_loop_detection: "true"
+  message_prefix_chatwork: "[From Chatwork]"
+  message_prefix_lark: "[From Lark]"
+
+  # Retry settings
+  max_retry_attempts: "3"
+  initial_retry_delay: "1.0"
+  max_retry_delay: "60.0"
+
+  # Message settings
+  max_message_length: "4000"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatwork-lark-mappings
+  namespace: chatwork-lark
+  labels:
+    app: chatwork-lark-bridge
+    environment: production
+data:
+  room_mappings.json: |
+    {
+      "mappings": [
+        {
+          "chatwork_room_id": "REPLACE_WITH_ACTUAL_CHATWORK_ROOM_ID",
+          "lark_chat_id": "REPLACE_WITH_ACTUAL_LARK_CHAT_ID",
+          "name": "General Discussion",
+          "is_active": true,
+          "sync_direction": "both",
+          "description": "全社共通チャット"
+        },
+        {
+          "chatwork_room_id": "REPLACE_WITH_ANOTHER_ROOM_ID",
+          "lark_chat_id": "REPLACE_WITH_ANOTHER_CHAT_ID",
+          "name": "Engineering Team",
+          "is_active": true,
+          "sync_direction": "both",
+          "description": "エンジニアリングチーム専用"
+        }
+      ]
+    }
+
+  user_mappings.json: |
+    {
+      "mappings": [
+        {
+          "chatwork_user_id": "REPLACE_WITH_ACTUAL_USER_ID",
+          "lark_user_id": "REPLACE_WITH_ACTUAL_OPEN_ID",
+          "display_name": "ユーザー名",
+          "email": "user@example.com",
+          "is_active": true
+        }
+      ]
+    }

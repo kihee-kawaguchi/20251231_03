@@ -1,0 +1,77 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chatwork-lark-ingress
+  namespace: chatwork-lark
+  labels:
+    app: chatwork-lark-bridge
+  annotations:
+    # Nginx Ingress Controller annotations
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+
+    # Certificate management (cert-manager)
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+spec:
+  ingressClassName: nginx
+
+  tls:
+    - hosts:
+        - chatwork-lark.example.com
+      secretName: chatwork-lark-tls
+
+  rules:
+    - host: chatwork-lark.example.com
+      http:
+        paths:
+          # Webhook endpoints
+          - path: /webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: chatwork-lark-service
+                port:
+                  number: 80
+
+          # Health check endpoints
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: chatwork-lark-service
+                port:
+                  number: 80
+
+---
+# Optional: Separate ingress for internal health checks (no TLS)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chatwork-lark-internal
+  namespace: chatwork-lark
+  labels:
+    app: chatwork-lark-bridge
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx-internal
+  rules:
+    - host: chatwork-lark-internal.cluster.local
+      http:
+        paths:
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: chatwork-lark-service
+                port:
+                  number: 80

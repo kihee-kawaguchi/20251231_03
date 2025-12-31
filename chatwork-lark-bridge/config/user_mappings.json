@@ -1,0 +1,16 @@
+{
+  "mappings": [
+    {
+      "chatwork_user_id": "111",
+      "lark_user_id": "ou_test123",
+      "display_name": "Test User 1",
+      "is_active": true
+    },
+    {
+      "chatwork_user_id": "222",
+      "lark_user_id": "ou_test456",
+      "display_name": "Test User 2",
+      "is_active": true
+    }
+  ]
+}

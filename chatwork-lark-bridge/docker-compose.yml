@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  # Redis for message mapping and caching
+  redis:
+    image: redis:7-alpine
+    container_name: chatwork-lark-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chatwork-lark-network
+
+  # Main application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chatwork-lark-bridge
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Application
+      ENV: ${ENV:-production}
+      HOST: 0.0.0.0
+      PORT: 8000
+      DEBUG: ${DEBUG:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # Chatwork
+      CHATWORK_API_TOKEN: ${CHATWORK_API_TOKEN}
+      CHATWORK_WEBHOOK_SECRET: ${CHATWORK_WEBHOOK_SECRET}
+
+      # Lark
+      LARK_APP_ID: ${LARK_APP_ID}
+      LARK_APP_SECRET: ${LARK_APP_SECRET}
+      LARK_VERIFICATION_TOKEN: ${LARK_VERIFICATION_TOKEN}
+      LARK_ENCRYPT_KEY: ${LARK_ENCRYPT_KEY:-}
+
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+
+      # Loop detection
+      ENABLE_LOOP_DETECTION: ${ENABLE_LOOP_DETECTION:-true}
+      MESSAGE_PREFIX_CHATWORK: ${MESSAGE_PREFIX_CHATWORK:-[From Chatwork]}
+      MESSAGE_PREFIX_LARK: ${MESSAGE_PREFIX_LARK:-[From Lark]}
+
+      # Retry settings
+      MAX_RETRY_ATTEMPTS: ${MAX_RETRY_ATTEMPTS:-3}
+      INITIAL_RETRY_DELAY: ${INITIAL_RETRY_DELAY:-1.0}
+      MAX_RETRY_DELAY: ${MAX_RETRY_DELAY:-60.0}
+
+      # Message settings
+      MAX_MESSAGE_LENGTH: ${MAX_MESSAGE_LENGTH:-4000}
+
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - chatwork-lark-network
+    volumes:
+      # Mount config directory for room/user mappings
+      - ./config:/app/config:ro
+
+  # Optional: Redis Commander for debugging
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: chatwork-lark-redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - chatwork-lark-network
+    profiles:
+      - debug
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  chatwork-lark-network:
+    driver: bridge

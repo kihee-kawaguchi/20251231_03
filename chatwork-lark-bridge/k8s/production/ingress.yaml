@@ -1,0 +1,102 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chatwork-lark-ingress
+  namespace: chatwork-lark
+  labels:
+    app: chatwork-lark-bridge
+    environment: production
+  annotations:
+    # SSL/TLS 設定
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # Let's Encrypt で TLS 証明書を自動取得
+    # cert-manager が必要（事前にインストール）
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # レート制限（DDoS対策）
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+
+    # タイムアウト設定
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+
+    # ボディサイズ制限
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # セキュリティヘッダー
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+
+spec:
+  ingressClassName: nginx
+
+  tls:
+    - hosts:
+        - REPLACE_WITH_YOUR_DOMAIN.com  # ← ここを実際のドメインに変更
+      secretName: chatwork-lark-tls
+
+  rules:
+    - host: REPLACE_WITH_YOUR_DOMAIN.com  # ← ここを実際のドメインに変更
+      http:
+        paths:
+          # Webhook endpoints
+          - path: /webhook/chatwork
+            pathType: Prefix
+            backend:
+              service:
+                name: chatwork-lark-service
+                port:
+                  number: 80
+
+          - path: /webhook/lark
+            pathType: Prefix
+            backend:
+              service:
+                name: chatwork-lark-service
+                port:
+                  number: 80
+
+          # Health check endpoints
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: chatwork-lark-service
+                port:
+                  number: 80
+
+---
+# 参考: ドメイン設定手順
+#
+# 1. ドメインを取得（まだの場合）
+#
+# 2. Ingress Controller の EXTERNAL-IP を取得:
+#    kubectl get svc -n ingress-nginx nginx-ingress-controller
+#
+#    例: EXTERNAL-IP = 35.200.1.100
+#
+# 3. DNS A レコードを設定:
+#    REPLACE_WITH_YOUR_DOMAIN.com → 35.200.1.100
+#
+# 4. DNS 伝播を確認（最大48時間、通常は数分）:
+#    nslookup REPLACE_WITH_YOUR_DOMAIN.com
+#
+# 5. このファイルの REPLACE_WITH_YOUR_DOMAIN.com を実際のドメインに置換
+#
+# 6. 適用:
+#    kubectl apply -f ingress.yaml
+#
+# 7. TLS 証明書の自動取得を確認（数分かかる）:
+#    kubectl get certificate -n chatwork-lark
+#    kubectl describe certificate chatwork-lark-tls -n chatwork-lark
+#
+# 8. 動作確認:
+#    curl https://REPLACE_WITH_YOUR_DOMAIN.com/health/

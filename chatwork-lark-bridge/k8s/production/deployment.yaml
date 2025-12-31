@@ -1,0 +1,200 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatwork-lark-bridge
+  namespace: chatwork-lark
+  labels:
+    app: chatwork-lark-bridge
+    component: api
+    version: v1
+    environment: production
+spec:
+  # 本番環境では最小2レプリカ（高可用性）
+  replicas: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # ゼロダウンタイム
+
+  selector:
+    matchLabels:
+      app: chatwork-lark-bridge
+      component: api
+
+  template:
+    metadata:
+      labels:
+        app: chatwork-lark-bridge
+        component: api
+        version: v1
+        environment: production
+      annotations:
+        # Prometheus メトリクス収集
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+
+    spec:
+      serviceAccountName: chatwork-lark-bridge
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      # Init container で Redis の起動を待つ
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z redis-service 6379; do
+                echo "Waiting for Redis..."
+                sleep 2
+              done
+              echo "Redis is ready!"
+
+      containers:
+        - name: app
+          image: chatwork-lark-bridge:latest  # ← イメージタグを適切に設定
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          env:
+            # 環境設定
+            - name: ENV
+              value: "production"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "8000"
+            - name: DEBUG
+              value: "false"  # 本番では false
+
+            # ConfigMap から読み込み
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: chatwork-lark-config
+                  key: log_level
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: chatwork-lark-config
+                  key: redis_url
+            - name: ENABLE_LOOP_DETECTION
+              valueFrom:
+                configMapKeyRef:
+                  name: chatwork-lark-config
+                  key: enable_loop_detection
+            - name: MESSAGE_PREFIX_CHATWORK
+              valueFrom:
+                configMapKeyRef:
+                  name: chatwork-lark-config
+                  key: message_prefix_chatwork
+            - name: MESSAGE_PREFIX_LARK
+              valueFrom:
+                configMapKeyRef:
+                  name: chatwork-lark-config
+                  key: message_prefix_lark
+
+            # Secret から読み込み
+            - name: CHATWORK_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: chatwork-lark-secrets
+                  key: chatwork-api-token
+            - name: CHATWORK_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chatwork-lark-secrets
+                  key: chatwork-webhook-secret
+            - name: LARK_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: chatwork-lark-secrets
+                  key: lark-app-id
+            - name: LARK_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chatwork-lark-secrets
+                  key: lark-app-secret
+            - name: LARK_VERIFICATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: chatwork-lark-secrets
+                  key: lark-verification-token
+
+          # リソース制限（本番環境）
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m      # 本番では余裕を持たせる
+              memory: 512Mi
+
+          # Liveness Probe（Podの生存確認）
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness Probe（トラフィック受付可否）
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: config
+          configMap:
+            name: chatwork-lark-mappings
+        - name: tmp
+          emptyDir: {}
+
+      # Pod Anti-Affinity（高可用性のため異なるノードに配置）
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - chatwork-lark-bridge
+                topologyKey: kubernetes.io/hostname
