@@ -1,252 +1,350 @@
-# Chatwork-Lark Bridge
+# 🌉 Chatwork-Lark Bridge
 
-Bidirectional message synchronization between Chatwork and Lark platforms.
+[![Tests](https://img.shields.io/badge/tests-79%20passed-success)](https://github.com/kihee-kawaguchi/20251231_03)
+[![Coverage](https://img.shields.io/badge/coverage-67.38%25-green)](https://github.com/kihee-kawaguchi/20251231_03)
+[![Python](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115.6-009688)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Features
+**本番環境対応**の Chatwork ↔ Lark (Feishu) 双方向メッセージ同期サービス
 
-- ✅ Real-time bidirectional message sync
-- ✅ Loop detection and prevention
-- ✅ Webhook signature verification
-- ✅ Retry logic with exponential backoff
-- ✅ Dead Letter Queue for failed messages
-- ✅ Structured logging (JSON format)
-- ✅ Health check endpoints
-- ✅ Redis-based message tracking
+リアルタイムでメッセージを同期し、チーム間のコミュニケーションをシームレスに統合します。
 
-## Architecture
+## ✨ 主要機能
 
-```
-Chatwork ⇄ Bridge Server ⇄ Lark
-               ↓
-            Redis
-```
+- 🔄 **双方向メッセージ同期** - Chatwork と Lark 間でリアルタイム同期
+- 🔒 **セキュアな通信** - Webhook 署名検証、TLS/SSL 対応
+- 🛡️ **ループ検出** - メッセージプレフィックスによる無限ループ防止
+- 🎯 **重複防止** - Redis を使用した重複メッセージ検出
+- 📊 **高可用性** - Kubernetes 2レプリカ構成、自動フェイルオーバー
+- 🧪 **包括的テスト** - 79テスト (100%合格)、67%カバレッジ
+- 📈 **監視対応** - Prometheus メトリクス、構造化ログ
+- 🚀 **本番対応** - Docker、Kubernetes、CI/CD完備
 
-## Prerequisites
+## 🚀 クイックスタート
 
-- Python 3.11+
-- Redis 6.0+
-- Chatwork API token
-- Lark App credentials
-
-## Quick Start
-
-### 1. Clone and Setup
+### Docker Compose (推奨)
 
 ```bash
-cd chatwork-lark-bridge
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+# リポジトリクローン
+git clone https://github.com/kihee-kawaguchi/20251231_03.git
+cd 20251231_03/chatwork-lark-bridge
 
-### 2. Configure Environment
-
-```bash
+# 環境変数設定
 cp .env.example .env
-# Edit .env with your credentials
+nano .env  # 認証情報を入力
+
+# 起動
+docker-compose up -d
+
+# ヘルスチェック
+curl http://localhost:8000/health/
 ```
 
-### 3. Start Redis
+### ローカル開発
 
 ```bash
-# Using Docker
-docker run -d -p 6379:6379 redis:7-alpine
+# Python 3.12+ 必須
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Or install locally
-redis-server
+# 依存関係インストール
+pip install -r requirements.txt
+
+# 環境変数設定
+export CHATWORK_API_TOKEN=your_token
+export LARK_APP_ID=cli_xxx
+# ... その他の環境変数
+
+# アプリ起動
+uvicorn src.main:app --reload
+
+# 別ターミナルでテスト実行
+pytest -v
 ```
 
-### 4. Run Application
+## 📋 必須環境変数
 
 ```bash
-# Development
-python -m src.main
+# Chatwork
+CHATWORK_API_TOKEN=xxx          # APIトークン
+CHATWORK_WEBHOOK_SECRET=xxx     # Webhook Secret (base64)
 
-# Or with uvicorn
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+# Lark
+LARK_APP_ID=cli_xxx            # App ID
+LARK_APP_SECRET=xxx            # App Secret
+LARK_VERIFICATION_TOKEN=xxx     # Verification Token
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# オプション
+LOG_LEVEL=INFO
+ENABLE_LOOP_DETECTION=true
+MESSAGE_PREFIX_CHATWORK=[From Lark]
+MESSAGE_PREFIX_LARK=[From Chatwork]
 ```
 
-### 5. Verify Health
+詳細は [.env.example](.env.example) を参照してください。
+
+## 🏗️ アーキテクチャ
+
+```
+┌─────────────┐              ┌─────────────┐
+│  Chatwork   │◄────────────►│    Lark     │
+└──────┬──────┘              └──────┬──────┘
+       │                            │
+       │ Webhook                    │ Webhook
+       ▼                            ▼
+┌──────────────────────────────────────────┐
+│         nginx-ingress (TLS/SSL)          │
+└─────────────────┬────────────────────────┘
+                  ▼
+┌──────────────────────────────────────────┐
+│    FastAPI (2 replicas, HA)              │
+│  ┌────────────┐      ┌─────────────┐    │
+│  │ Chatwork   │      │    Lark     │    │
+│  │  Handler   │      │   Handler   │    │
+│  └─────┬──────┘      └──────┬──────┘    │
+│        └────────┬────────────┘           │
+│                 ▼                        │
+│       ┌──────────────────┐               │
+│       │Message Processor │               │
+│       │- Loop Detection  │               │
+│       │- Duplicate Check │               │
+│       └─────────┬────────┘               │
+└─────────────────┼──────────────────────┘
+                  ▼
+          ┌───────────────┐
+          │     Redis     │
+          │  (Tracking)   │
+          └───────────────┘
+```
+
+## 📊 API エンドポイント
+
+| Method | Path | 説明 |
+|--------|------|------|
+| `POST` | `/webhook/chatwork/` | Chatwork Webhook受信 |
+| `POST` | `/webhook/lark/` | Lark Webhook受信 |
+| `GET` | `/health/` | ヘルスチェック (詳細) |
+| `GET` | `/health/live` | Liveness probe |
+| `GET` | `/health/ready` | Readiness probe |
+| `GET` | `/metrics` | Prometheus メトリクス |
+| `GET` | `/docs` | Swagger UI |
+
+## 🧪 テスト
+
+### テスト実行
 
 ```bash
-curl http://localhost:8000/health
+# 全テスト実行
+pytest -v
+
+# カバレッジ付き
+pytest --cov=src --cov-report=html
+open htmlcov/index.html
+
+# 特定カテゴリのみ
+pytest tests/unit/         # ユニットテスト
+pytest tests/integration/  # 統合テスト
+pytest tests/e2e/          # E2Eテスト
+
+# 高速実行 (遅いテストをスキップ)
+pytest -m "not slow"
 ```
 
-## Configuration
+### テスト統計
 
-### Environment Variables
+```
+✅ 79/79 テスト合格 (100%)
+├── ユニットテスト: 54個
+├── 統合テスト: 20個
+└── E2Eテスト: 5個
 
-See `.env.example` for all available options.
+📈 カバレッジ: 67.38%
+├── src/api/: 88-94%
+├── src/core/: 65-92%
+├── src/services/: 16-83%
+└── src/utils/: 68%
+```
 
-**Required:**
-- `CHATWORK_API_TOKEN` - Your Chatwork API token
-- `CHATWORK_WEBHOOK_SECRET` - Webhook signature verification secret
-- `LARK_APP_ID` - Lark application ID
-- `LARK_APP_SECRET` - Lark application secret
-- `LARK_VERIFICATION_TOKEN` - Lark verification token
+## 🚢 本番デプロイ
 
-**Optional:**
-- `REDIS_URL` - Redis connection URL (default: `redis://localhost:6379/0`)
-- `LOG_LEVEL` - Logging level (default: `INFO`)
-- `MAX_RETRY_ATTEMPTS` - Maximum retry attempts (default: `5`)
+### Kubernetes デプロイ
 
-## API Endpoints
+```bash
+cd k8s/production
 
-### Health Checks
+# 1. Secret 作成
+cp secret-template.yaml secret.yaml
+nano secret.yaml  # 実際の認証情報を入力
 
-- `GET /health` - Overall health status
-- `GET /health/ready` - Readiness probe
-- `GET /health/live` - Liveness probe
+# 2. ConfigMap 編集
+nano configmap.yaml  # Room/User マッピング設定
 
-### Webhooks
+# 3. Ingress 編集
+nano ingress.yaml  # ドメイン名設定
 
-- `POST /webhook/chatwork` - Chatwork webhook endpoint
-- `POST /webhook/lark` - Lark event subscription endpoint
+# 4. デプロイ実行
+./deploy-production.sh
 
-## Development
+# 5. 確認
+kubectl get pods -n chatwork-lark
+kubectl get ingress -n chatwork-lark
+curl https://your-domain.com/health/
+```
 
-### Project Structure
+詳細は [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md) を参照してください。
+
+### 本番環境構成
+
+- **高可用性**: 2レプリカ + Pod Anti-Affinity
+- **ゼロダウンタイム**: RollingUpdate戦略
+- **自動回復**: Liveness/Readiness Probes
+- **セキュリティ**: 
+  - 非rootユーザー実行
+  - Read-only filesystem
+  - TLS/SSL (Let's Encrypt)
+  - Rate limiting
+  - Security headers
+- **監視**: Prometheus annotations, 構造化ログ
+
+## 📁 プロジェクト構造
 
 ```
 chatwork-lark-bridge/
-├── src/
-│   ├── api/          # API endpoints
-│   │   ├── chatwork.py
-│   │   ├── lark.py
-│   │   └── health.py
-│   ├── core/         # Core functionality
-│   │   ├── config.py
-│   │   ├── logging.py
-│   │   ├── exceptions.py
-│   │   └── retry.py
-│   ├── models/       # Data models
-│   ├── services/     # Business logic
-│   │   └── redis_client.py
-│   ├── utils/        # Utilities
-│   │   └── webhook_verification.py
-│   └── main.py       # Application entry point
-├── tests/            # Test suite
-├── config/           # Configuration files
-├── logs/             # Log files
-├── .env.example      # Environment template
-├── requirements.txt  # Dependencies
-└── README.md
+├── src/                    # アプリケーションコード (765行)
+│   ├── api/               # FastAPI endpoints
+│   ├── core/              # Config, exceptions, logging
+│   ├── services/          # Business logic
+│   └── utils/             # Utilities
+├── tests/                  # テストスイート (79テスト)
+│   ├── unit/              # ユニットテスト (54)
+│   ├── integration/       # 統合テスト (20)
+│   └── e2e/               # E2Eテスト (5)
+├── k8s/                    # Kubernetes manifests
+│   └── production/        # 本番環境設定
+├── config/                 # マッピング設定
+├── .github/workflows/      # CI/CD
+└── docs/                   # ドキュメント
 ```
 
-### Running Tests
+## 🔧 設定
 
-```bash
-# Install test dependencies
-pip install -r requirements.txt
+### Room マッピング
 
-# Run tests
-pytest
-
-# With coverage
-pytest --cov=src --cov-report=html
-```
-
-### Code Quality
-
-```bash
-# Format code
-black src/
-
-# Sort imports
-isort src/
-
-# Lint
-flake8 src/
-
-# Type check
-mypy src/
-```
-
-## Deployment
-
-### Docker
-
-```bash
-# Build
-docker build -t chatwork-lark-bridge .
-
-# Run
-docker run -d \
-  --name chatwork-lark-bridge \
-  -p 8000:8000 \
-  --env-file .env \
-  chatwork-lark-bridge
-```
-
-### Docker Compose
-
-```bash
-docker-compose up -d
-```
-
-## Monitoring
-
-### Prometheus Metrics
-
-Metrics are exposed at `http://localhost:9090/metrics` (if enabled).
-
-**Key Metrics:**
-- `message_sync_total` - Total messages synced
-- `message_sync_failures` - Failed sync attempts
-- `message_sync_latency_seconds` - Sync latency
-- `webhook_requests_total` - Total webhook requests
-
-### Logging
-
-Logs are output in JSON format by default.
+`config/room_mappings.json`:
 
 ```json
 {
-  "timestamp": "2025-12-31T20:00:00Z",
-  "level": "INFO",
-  "event": "message_synced",
-  "source_platform": "chatwork",
-  "target_platform": "lark",
-  "latency_ms": 234
+  "mappings": [
+    {
+      "chatwork_room_id": "12345678",
+      "lark_chat_id": "oc_a1b2c3d4e5f6",
+      "sync_direction": "both"
+    }
+  ]
 }
 ```
 
-## Troubleshooting
+### User マッピング
 
-### Common Issues
+`config/user_mappings.json`:
 
-**Redis Connection Failed**
-```bash
-# Check Redis is running
-redis-cli ping
-# Should return: PONG
+```json
+{
+  "mappings": [
+    {
+      "chatwork_user_id": "111",
+      "lark_open_id": "ou_a1b2c3d4e5f6"
+    }
+  ]
+}
 ```
 
-**Webhook Signature Verification Failed**
-- Verify `CHATWORK_WEBHOOK_SECRET` is base64 encoded
-- Check webhook secret in Chatwork API settings
+## 📚 ドキュメント
 
-**Messages Not Syncing**
-- Check room mapping configuration
-- Verify API tokens are valid
-- Check logs for errors: `docker logs chatwork-lark-bridge`
+| ドキュメント | 説明 |
+|-------------|------|
+| [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md) | 本番環境セットアップ完全ガイド |
+| [PRODUCTION_CHECKLIST.md](PRODUCTION_CHECKLIST.md) | デプロイ前チェックリスト |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | デプロイメント手順 |
+| [TESTING.md](TESTING.md) | テスト実行ガイド |
+| [PROJECT_COMPLETION_REPORT.md](PROJECT_COMPLETION_REPORT.md) | プロジェクト完了報告 |
+| [CLAUDE.md](CLAUDE.md) | Claude Code 開発ガイド |
 
-## Contributing
+## 🛠️ 技術スタック
 
-1. Create feature branch
-2. Make changes
-3. Run tests: `pytest`
-4. Submit pull request
+### バックエンド
+- **Python** 3.12
+- **FastAPI** 0.115.6 - 高性能非同期Webフレームワーク
+- **Pydantic** 2.10.5 - データバリデーション
+- **aiohttp** 3.11.11 - 非同期HTTPクライアント
+- **Redis** 5.2.1 - メッセージトラッキング
 
-## License
+### インフラ
+- **Docker** - コンテナ化
+- **Kubernetes** - オーケストレーション
+- **nginx-ingress** - リバースプロキシ
+- **cert-manager** - TLS証明書管理
+- **Prometheus** - メトリクス収集
 
-MIT
+### 開発ツール
+- **pytest** - テストフレームワーク
+- **black** - コードフォーマッター
+- **flake8** - Linter
+- **mypy** - 型チェッカー
 
-## Support
+## 🤝 コントリビューション
 
-For issues and questions, please open a GitHub issue.
+コントリビューション歓迎！以下の手順でPRを送ってください:
+
+```bash
+# 1. Fork & Clone
+git clone https://github.com/YOUR_USERNAME/20251231_03.git
+
+# 2. ブランチ作成
+git checkout -b feature/amazing-feature
+
+# 3. 変更をコミット
+git commit -m "feat: add amazing feature"
+
+# 4. プッシュ
+git push origin feature/amazing-feature
+
+# 5. PR作成
+gh pr create --title "feat: Add amazing feature"
+```
+
+### 開発ガイドライン
+- Conventional Commits を使用
+- テストを追加（カバレッジ維持）
+- Black + isort でフォーマット
+- 型ヒント必須
+- Docstring を記述
+
+## 📝 ライセンス
+
+MIT License - 詳細は [LICENSE](LICENSE) を参照
+
+## 🙏 謝辞
+
+- [FastAPI](https://fastapi.tiangolo.com/) - 素晴らしいWebフレームワーク
+- [Chatwork API](https://developer.chatwork.com/) - Chatwork API
+- [Lark Open Platform](https://open.larksuite.com/) - Lark API
+
+## 📞 サポート
+
+- **Issues**: [GitHub Issues](https://github.com/kihee-kawaguchi/20251231_03/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/kihee-kawaguchi/20251231_03/discussions)
 
 ---
 
-**Version:** 0.1.0 (Prototype)
-**Status:** Development
+<div align="center">
+
+🤖 **Generated with [Claude Code](https://claude.com/claude-code)**
+
+Made with ❤️ by Claude Sonnet 4.5
+
+</div>

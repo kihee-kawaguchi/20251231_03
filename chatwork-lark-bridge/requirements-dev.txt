@@ -1,0 +1,23 @@
+# Development tools
+-r requirements.txt
+-r requirements-test.txt
+
+# Code formatting
+black==24.10.0
+isort==5.13.2
+
+# Linting
+flake8==7.1.1
+flake8-docstrings==1.7.0
+pylint==3.3.2
+
+# Type checking
+mypy==1.13.0
+
+# Security
+bandit==1.8.0
+safety==3.2.11
+
+# Documentation
+mkdocs==1.6.1
+mkdocs-material==9.5.47
