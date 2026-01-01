@@ -40,6 +40,16 @@ if __name__ == "__main__":
     async def demo_lifespan(app):
         # Startup
         await override_redis()
+
+        # Load room and user mappings
+        from src.services.mapping_loader import mapping_loader
+        try:
+            room_count = await mapping_loader.load_room_mappings()
+            user_count = await mapping_loader.load_user_mappings()
+            print(f"[OK] Loaded {room_count} room mappings and {user_count} user mappings")
+        except Exception as e:
+            print(f"[WARNING] Failed to load mappings: {e}")
+
         print("[OK] Demo server started successfully!")
         print("[INFO] Press CTRL+C to stop the server")
         print("")
