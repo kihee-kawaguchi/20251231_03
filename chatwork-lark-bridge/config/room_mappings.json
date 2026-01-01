@@ -1,24 +1,15 @@
 {
   "mappings": [
     {
-      "chatwork_room_id": "12345678",
-      "lark_chat_id": "oc_a1b2c3d4e5f6",
-      "name": "Example Room 1",
+      "chatwork_room_id": "419006922",
+      "lark_chat_id": "oc_d32ed406b7bd9ac68669acfd4f7bbf31",
+      "name": "Chatwork連携テスト",
       "is_active": true,
-      "sync_direction": "both"
-    },
-    {
-      "chatwork_room_id": "87654321",
-      "lark_chat_id": "oc_f6e5d4c3b2a1",
-      "name": "Example Room 2",
-      "is_active": true,
-      "sync_direction": "both"
+      "sync_direction": "lark_to_cw"
     }
   ],
   "notes": [
-    "Replace with your actual room IDs",
-    "chatwork_room_id: Find in Chatwork room URL",
-    "lark_chat_id: Get from Lark API or chat URL (starts with 'oc_')",
-    "sync_direction: 'both', 'cw_to_lark', or 'lark_to_cw'"
+    "Real room mapping for Lark to Chatwork sync",
+    "sync_direction: 'lark_to_cw' (one-way, Lark to Chatwork only)"
   ]
 }
